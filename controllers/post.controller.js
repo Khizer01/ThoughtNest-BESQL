@@ -1,31 +1,41 @@
-import Post from "../models/post.model.js";
-import User from "../models/user.model.js";
-import Comment from "../models/comment.model.js";
-import DOMPurify from "dompurify";
+import { sql, pool } from "../database/SQL.js";
 
 export const createPost = async (req, res, next) => {
   try {
     const { title, content } = req.body;
-
-    // const safeContent = DOMPurify.sanitize(content);
 
     if (!title || !content) {
       return res
         .status(400)
         .json({ message: "Title and content are required" });
     }
-    const userName = await User.findById(req.user.id || req.user.userId).select("name");
 
-    const newPost = await Post.create({
-      title,
-      content,
-      publisherId: req.user.id || req.user.userId,
-      publisherName: userName?.name,
-    });
+    const existUser = await pool
+      .request()
+      .input("id", sql.Int, req.user.id || req.user.userId)
+      .execute("sp_fetchUser");
+
+    const userName =
+      existUser.recordset.length > 0 ? existUser.recordset[0] : null;
+
+    await pool
+      .request()
+      .input("title", sql.VarChar, title)
+      .input("content", sql.VarChar, content)
+      .input("publisherId", sql.Int, req.user.id || req.user.userId)
+      .input("publisherName", sql.VarChar, userName?.name)
+      .input("publishedOn", sql.DateTime, new Date())
+      .execute("sp_CreatePost");
+
+    const newPost = await pool
+      .request()
+      .input("title", sql.VarChar, title)
+      .input("publisherId", sql.Int, req.user.id || req.user.userId)
+      .execute("sp_fetchCreatedPost");
 
     res.status(201).json({
       message: "Post created successfully",
-      data: newPost,
+      data: newPost.recordset[0],
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -36,8 +46,6 @@ export const editPost = async (req, res, next) => {
   try {
     const { title, content } = req.body;
 
-    // const safeContent = DOMPurify.sanitize(content);
-
     const id = req.params.id;
 
     if (!title || !content) {
@@ -46,20 +54,32 @@ export const editPost = async (req, res, next) => {
         .json({ message: "Title and content are required" });
     }
 
-    const post = await Post.findByIdAndUpdate(id, {
-      title: title,
-      content: content,
-    }, { new: true, runValidators: true });
+    const post = await pool
+      .request()
+      .input("id", sql.Int, id)
+      .execute("sp_fetchPost");
 
-    if (!post) {
+    if (post.recordset.length === 0) {
       return res.status(404).json({ message: "Post not found" });
     }
 
+    await pool
+      .request()
+      .input("id", sql.Int, id)
+      .input("title", sql.VarChar, title)
+      .input("content", sql.VarChar, content)
+      .input("publishedOn", sql.DateTime, new Date())
+      .execute("sp_updatePost");
+
+    const updatedPost = await pool
+      .request()
+      .input("id", sql.Int, id)
+      .execute("sp_fetchPost");
+
     res.status(200).json({
       message: "Post Updated Successfully",
-      data: post,
+      data: updatedPost.recordset[0],
     });
-
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -68,21 +88,33 @@ export const editPost = async (req, res, next) => {
 export const deletePost = async (req, res, next) => {
   try {
     const id = req.params.id;
-    const post = await Post.findById({ _id: id });
-    if (!post) {
+
+    const existPost = await pool
+      .request()
+      .input("id", sql.Int, id)
+      .execute("sp_fetchPost");
+
+    if (existPost.recordset.length === 0) {
       return res.status(404).json({
         message: "No post with such id found",
       });
     }
 
-    if (post.publisherId?.toString() !== (req.user?.id?.toString() || req.user?.userId)) {
+    const post = existPost.recordset[0];
+
+    if (
+      post.publisherId?.toString() !==
+      (req.user?.id?.toString() || req.user?.userId?.toString())
+    ) {
       return res
         .status(403)
         .json({ message: "You are not authorized to delete this post" });
     }
 
-    await Post.findByIdAndDelete(id);
-    await Comment.deleteMany({postID: post._id});
+    await pool
+      .request()
+      .input("id", sql.Int, id)
+      .execute("sp_deletePost");
 
     res.status(204).json({ message: "Post deleted successfully" });
   } catch (error) {
@@ -90,15 +122,31 @@ export const deletePost = async (req, res, next) => {
   }
 };
 
+const formatPostDate = (post) => ({
+  ...post,
+  publishedOn: post.publishedOn
+    ? new Date(post.publishedOn).toISOString()
+    : null,
+});
+
 export const getPost = async (req, res, next) => {
   try {
     const id = req.params.id;
-    const post = await Post.findById(id);
-    if (!post) {
+
+    const post = await pool
+      .request()
+      .input("id", sql.Int, id)
+      .execute("sp_fetchPost");
+
+    if (post.recordset.length === 0) {
       return res.status(404).json({
         message: "No post with such id found",
       });
     }
+
+    post.recordset[0].publishedOn = new Date(
+      post.recordset[0].publishedOn
+    ).toISOString();
 
     res.status(200).json({ post });
   } catch (error) {
@@ -108,25 +156,27 @@ export const getPost = async (req, res, next) => {
 
 export const getAllPosts = async (req, res, next) => {
   try {
-    // Get query params for pagination
-    const page = parseInt(req.query.page) || 1; // Default to page 1
-    const limit = parseInt(req.query.limit) || 10; // Default limit to 10 posts
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
 
-    // Fetch posts with pagination and sorting
-    const posts = await Post.find()
-      .skip(skip)
-      .limit(limit)
-      .sort({ createdAt: -1 }); // Sort by latest posts
+    const result = await pool
+      .request()
+      .input("offset", sql.Int, skip)
+      .input("limit", sql.Int, limit)
+      .execute("sp_fetchOFFSetPost");
 
-    // Get total count for frontend pagination
-    const totalPosts = await Post.countDocuments();
+    const safePosts = result.recordset.map(formatPostDate);
+
+    const totalPosts = await pool
+      .request()
+      .query("SELECT COUNT(*) AS total FROM Post");
 
     res.status(200).json({
-      data: posts,
+      data: safePosts,
       currentPage: page,
-      totalPages: Math.ceil(totalPosts / limit),
-      totalPosts,
+      totalPages: Math.ceil(totalPosts.recordset[0].total / limit),
+      totalPosts: totalPosts.recordset[0].total,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });

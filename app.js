@@ -6,12 +6,12 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import AuthRoute from './routes/auth.route.js';
 import UsersRoute from './routes/users.route.js';
-import connectDB from './database/Mongo.js';
 import passport from './configs/passport.js';
 import postRoute from './routes/post.route.js';
 import commentRoute from './routes/comment.route.js';
 import cors from 'cors';
 import aiPostRouter from './routes/aiPost.route.js';
+import likesRoute from './routes/likes.route.js';
 
 var app = express();
 
@@ -38,10 +38,10 @@ app.use(`${URL}/users`, UsersRoute);
 app.use(`${URL}/post`, postRoute);
 app.use(`${URL}/comment`, commentRoute);
 app.use(`${URL}/ai`, aiPostRouter);
+app.use(`${URL}/likes`, likesRoute);
 
 app.listen(PORT, async()=> {
   console.log(`Server running on Port: ${PORT}`);
-  await connectDB();
 })
 
 export default app;
