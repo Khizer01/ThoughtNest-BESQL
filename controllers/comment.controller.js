@@ -31,13 +31,9 @@ export const createComment = async (req, res, next) => {
       .input("userName", sql.VarChar, userName.recordset[0].name)
       .execute("sp_CreateComment");
 
-    const createdComment = await pool
-      .request()
-      .input("postID", sql.Int, postID)
-      .input("userName", sql.VarChar, userName.recordset[0].name)
-      .execute("sp_fetchComments");
 
-    const rawComment = createdComment.recordset[0];
+
+    const rawComment = newComment.recordset[0];
     const isoComment = {
       ...rawComment,
       createdAt: rawComment.createdAt.toISOString(),
