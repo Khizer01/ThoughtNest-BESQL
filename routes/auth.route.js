@@ -10,12 +10,14 @@ AuthRoute.post('/sign-up', SignUp );
 AuthRoute.get('/google', passport.authenticate('google', {scope: ["profile", "email"]}));
 
 AuthRoute.get("/google/callback", passport.authenticate('google', { session: false }), (req, res) => {
-    const { token, user } = req.user;
-    const name = encodeURIComponent(user.name);
-    const email = encodeURIComponent(user.email);
-    const id = encodeURIComponent(user._id);
+    const { token, newUser } = req.user;
     
-    res.redirect(`http://localhost:5173/?token=${token}&name=${name}&email=${email}&id=${id}`);
+    const name = encodeURIComponent(newUser.name);
+    const email = encodeURIComponent(newUser.email);
+    const avatar = encodeURIComponent(newUser.avatar);
+    const id = encodeURIComponent(newUser._id);
+    
+    res.redirect(`http://localhost:5173/?token=${token}&name=${name}&email=${email}&id=${id}&avatar=${avatar}`);
 });
 
 AuthRoute.post('/sign-in', SignIn );

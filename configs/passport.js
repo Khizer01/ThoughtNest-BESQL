@@ -12,22 +12,22 @@ passport.use(
     },
     async (accessToken, refreshToken, profile, done) => {
         try {
-            const {id, displayName, emails, photos} = profile;
+            const {id, displayName, emails, photos} = profile;           
             const email = emails[0].value;
-            const picture = photos[0].value;
+            const avatar = photos[0].value;
 
-            let user = await pool.request().input("email", sql.VarChar, email).query("SELECT * FROM Users WHERE email = @email");
+            let user = await pool.request().input("email", sql.VarChar, email).execute("sp_fetchUserByEMAIL");
             user = user.recordset[0];
             if(!user) {
                 user = await pool.request()
                     .input("name", sql.VarChar, displayName)
                     .input("email", sql.VarChar, email)
-                    .input("password", sql.VarChar, "google")
-                    .input("picture", sql.VarChar, picture)
-                    .query("INSERT INTO Users (name, email, password, picture) VALUES (@name, @email, @password, @picture); SELECT SCOPE_IDENTITY() AS id;");
+                    .input("password", sql.VarChar, "noinfoananymous")
+                    .input("avatar", sql.VarChar, avatar)
+                    .query("INSERT INTO Users (name, email, password, avatar) VALUES (@name, @email, @password, @avatar)");
             }
 
-            const userProf = await pool.request().input("email", sql.VarChar, email).query("SELECT * FROM Users WHERE email = @email")
+            const userProf = await pool.request().input("email", sql.VarChar, email).execute("sp_fetchUserByEMAIL");
 
             const token = jwt.sign({id: userProf.recordset[0].id}, JWT_SECRET, {expiresIn: JWT_EXPIRES_IN});
             const newUser = userProf.recordset[0];
